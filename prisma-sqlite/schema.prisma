@@ -1,0 +1,350 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// --- Enums ---
+enum RoleName {
+  ADMIN
+  DONOR
+  SUPPLIER
+  DISTRIBUTOR
+  TRAINER
+  TEAM
+}
+
+enum ProjectType {
+  BLANK
+  DISTRIBUTION
+  TRAINING
+  R_AND_D
+  PROCUREMENT
+  HYBRID
+}
+
+enum ProjectStatus {
+  ACTIVE
+  PAUSED
+  CLOSED
+  DRAFT
+}
+
+enum ActivityStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+  BLOCKED
+}
+
+enum MilestoneStatus {
+  NOT_STARTED
+  ON_TRACK
+  AT_RISK
+  COMPLETED
+}
+
+enum ReviewStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
+enum ExpenseCategory {
+  PRODUCTION
+  DISTRIBUTION
+  TRAINING
+  ADMIN
+  PROCUREMENT
+  LOGISTICS
+}
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+  MOBILE_MONEY
+  CARD
+}
+
+enum ReportType {
+  MONTHLY
+  MILESTONE
+  FINAL
+}
+
+enum BeneficiaryType {
+  DISTRIBUTION
+  TRAINING
+}
+
+enum LogisticsStatus {
+  PREP
+  PICKUP
+  IN_TRANSIT
+  CUSTOMS
+  DELAYED
+  DELIVERED
+}
+
+// --- Models (copied from Postgres schema) ---
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String?
+  twoFAEnabled Boolean  @default(false)
+  twoFASecret  String?
+  roles        UserRole[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model UserRole {
+  userId   String
+  roleName RoleName
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleName])
+}
+
+model Project {
+  id               String        @id
+  name             String
+  type             ProjectType
+  organisation     String
+  orgType          String?
+  location         String
+  start            DateTime
+  status           ProjectStatus
+  budget           Float
+  collected        Float         @default(0)
+  spent            Float         @default(0)
+  manager          String?
+  shortDescription String?
+  longDescription  String?
+  coverImage       String?
+  videoUrl         String?
+  operators        String[]
+  primaryOperator  String?
+
+  activities    Activity[]
+  milestones    Milestone[]
+  expenses      Expense[]
+  reports       Report[]
+  beneficiaries Beneficiary[]
+}
+
+model Activity {
+  id              String         @id @default(cuid())
+  projectId       String
+  project         Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title           String
+  description     String?
+  assignee        String?
+  assigneeType    String?
+  status          ActivityStatus @default(TODO)
+  priority        String?
+  due             DateTime?
+  startDate       DateTime?
+  endDate         DateTime?
+  plannedBudget   Float?
+  allocated       Float?
+  kpiTargetValue  Float?
+  kpiUnit         String?
+  sessionsPlanned Int?
+  participantsExpectedF Int?
+  participantsExpectedM Int?
+  progress        Int?
+  category        String?
+  attachments     Json?
+  reviewStatus    ReviewStatus?
+  submittedBy     String?
+  submittedAt     DateTime?
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  reviewNotes     String?
+  issues          String?
+  updatedAt       DateTime @default(now())
+
+  milestones Milestone[]
+  expenses   Expense[]
+  reports    Report[]
+}
+
+model Milestone {
+  id               String          @id @default(cuid())
+  projectId        String
+  project          Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  activityId       String?
+  activity         Activity?       @relation(fields: [activityId], references: [id])
+  label            String
+  targetDate       DateTime?
+  status           MilestoneStatus @default(NOT_STARTED)
+  progress         Int             @default(0)
+  plannedBudget    Float?
+  type             String?
+  owner            String?
+  location         String?
+  targetKits       Int?
+  targetSchools    Int?
+  sessionsPlanned  Int?
+  participantsExpectedF Int?
+  participantsExpectedM Int?
+  itemsScope       String?
+  poRef            String?
+  prototypeVersion String?
+  hypothesis       String?
+  dependsOnId      String?
+  risk             String?
+  externalRef      String?
+  description      String?
+  logisticsStatus  LogisticsStatus?
+  origin           String?
+  destination      String?
+  carrier          String?
+  trackingNumber   String?
+  eta              DateTime?
+  shippedOn        DateTime?
+  deliveredOn      DateTime?
+  qtyPlanned       Int?
+  qtyShipped       Int?
+  qtyReceived      Int?
+  unit             String?
+  damagesNotes     String?
+  actualSpentUSD   Float?
+  notes            String?
+  attachments      Json?
+  completedOn      DateTime?
+  issues           String?
+  nextSteps        String?
+  outputs          Int?
+  outputsUnit      String?
+  reviewStatus     ReviewStatus?
+  submittedBy      String?
+  submittedAt      DateTime?
+  reviewedBy       String?
+  reviewedAt       DateTime?
+  reviewNotes      String?
+
+  expenses     Expense[]
+  reports      Report[]
+}
+
+model Expense {
+  id          String          @id @default(cuid())
+  projectId   String
+  project     Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  activityId  String
+  activity    Activity        @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  milestoneId String?
+  milestone   Milestone?      @relation(fields: [milestoneId], references: [id])
+  category    ExpenseCategory
+  date        DateTime
+  description String
+  payee       String
+  method      PaymentMethod
+  currency    String
+  amount      Float
+  fx          Float?
+  status      ReviewStatus
+  attachment  String?
+}
+
+model Report {
+  id          String       @id @default(cuid())
+  projectId   String
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  type        ReportType
+  period      String?
+  milestoneId String?
+  milestone   Milestone?   @relation(fields: [milestoneId], references: [id])
+  activityId  String?
+  activity    Activity?    @relation(fields: [activityId], references: [id])
+  author      String
+  submittedAt DateTime?
+  status      ReviewStatus
+  file        String?
+}
+
+model Beneficiary {
+  id        String          @id @default(cuid())
+  projectId String
+  project   Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  date      DateTime
+  type      BeneficiaryType
+  females   Int
+  males     Int
+  notes     String?
+  file      String?
+}
+
+model BlogPost {
+  id             String   @id @default(cuid())
+  slug           String   @unique
+  title          String
+  summary        String
+  contentHtml    String
+  author         String
+  coverImageUrl  String?
+  category       String   @default("impact")
+  tags           String[] @default([])
+  readMinutes    Int      @default(5)
+  publishedAt    DateTime @default(now())
+  status         String   @default("published")
+  views          Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model ElearnModule {
+  id            String   @id @default(cuid())
+  slug          String   @unique
+  title         String
+  summary       String
+  coverImageUrl String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  lessons       ElearnLesson[]
+}
+
+model ElearnLesson {
+  id               String   @id @default(cuid())
+  slug             String   @unique
+  moduleId         String?
+  module           ElearnModule? @relation(fields: [moduleId], references: [id])
+  order_index      Int      @default(0)
+  title            String
+  html             String
+  level            String   @default("Beginner")
+  durationMinutes  Int      @default(8)
+  tags             String[] @default([])
+  coverImageUrl    String?
+  quickTip         String?
+  updatedAt        DateTime @updatedAt
+  createdAt        DateTime @default(now())
+  views            Int      @default(0)
+}
+
+model Resource {
+  id             String   @id @default(cuid())
+  slug           String   @unique
+  title          String
+  summary        String
+  category       String
+  year           Int
+  language       String
+  fileType       String
+  fileSizeBytes  Int?
+  url            String?
+  tags           String[] @default([])
+  status         String   @default("draft")
+  visibility     String   @default("public")
+  publishedAt    DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}

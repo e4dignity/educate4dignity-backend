@@ -1,0 +1,28 @@
+# Ignore local dependencies and build outputs
+node_modules
+npm-debug.log
+.yarn
+.pnpm-store
+
+# Build artifacts
+/dist
+/.cache
+
+# VCS and editor
+.git
+.gitignore
+.env.local
+.env.development
+.env.test
+.DS_Store
+.vscode
+
+# Docker
+Dockerfile*
+**/*.dockerfile
+
+# Misc
+*.swp
+*.log
+coverage
+.tmp
