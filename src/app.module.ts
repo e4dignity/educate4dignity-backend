@@ -16,6 +16,7 @@ import { BlogModule } from './blog/blog.module';
 import { AdminBlogController } from './admin/admin-blog.controller';
 import { AdminGalleryController } from './admin/admin-gallery.controller';
 import { AdminDashboardController } from './admin/admin-dashboard.controller';
+import { AdminDonorsController } from './admin/admin-donors.controller';
 import { PublicModule } from './public/public.module';
 import { DevSeedService } from './dev/dev-seed.service';
 // Removed TypeORM entities & feature module – Prisma-only stack
@@ -35,7 +36,7 @@ import { DevSeedService } from './dev/dev-seed.service';
   BlogModule,
   PublicModule,
   ],
-  controllers: [HealthController, UploadsController, DevController, AdminBlogController, AdminGalleryController, AdminDashboardController],
+  controllers: [HealthController, UploadsController, DevController, AdminBlogController, AdminGalleryController, AdminDashboardController, AdminDonorsController],
   providers: [
     PrismaService,
     CloudinaryService,

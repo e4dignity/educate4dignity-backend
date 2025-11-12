@@ -10,14 +10,29 @@ import { metricsRegistry as register, httpRequestDuration as httpHistogram } fro
 import * as bodyParser from 'body-parser';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { cors: true });
+  const app = await NestFactory.create(AppModule);
 
   // Security middlewares
   app.use(helmet());
   // Increase body size limits to allow project creation payloads with attachments/large descriptions
   app.use(json({ limit: '10mb' }));
   app.use(urlencoded({ extended: true, limit: '10mb' }));
-  // CORS is already enabled via create options; keep origin true for dev proxies
+  // Configure CORS explicitly to allow the cPanel site and Authorization headers
+  const allowedOrigins = [
+    'https://e4dignity.org',
+    'https://www.e4dignity.org',
+  ];
+  app.enableCors({
+    origin: (origin, callback) => {
+      // Allow no-origin (curl/health checks) and explicit allowed origins
+      if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+      return callback(null, false);
+    },
+    credentials: true,
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+    allowedHeaders: 'Origin, X-Requested-With, Content-Type, Accept, Authorization',
+    exposedHeaders: 'Content-Length, Content-Type',
+  });
 
   app.setGlobalPrefix('api');
   app.useGlobalPipes(new ValidationPipe({
