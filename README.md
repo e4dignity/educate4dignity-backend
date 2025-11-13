@@ -49,6 +49,24 @@ npm run start:dev
 
 It will bind to http://localhost:4000 and CORS is enabled.
 
+## Deploy on Render (backend-only repo)
+
+You can deploy just this backend folder as a separate GitHub repository. Include the provided `render.yaml` at the repo root (already present in this folder) so Render picks up the configuration automatically.
+
+Key points:
+- Build Command: `npm ci && npx prisma generate && npx prisma migrate deploy && npx tsc -p tsconfig.build.json`
+- Start Command: `npx prisma migrate deploy && npx prisma db seed && node dist/main.js`
+	- This ensures the database is migrated and seeded on every start. The seed creates a super admin if missing:
+		- Email: `admin@e4d.test`
+		- Password: `admin123`
+- Required env vars (set in Render Dashboard if not using render.yaml env injection):
+	- `DATABASE_URL=postgresql://...`
+	- `JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET` (strong random values)
+	- `SITE_URL=https://your-frontend-domain`
+	- Optional: `CLOUDINARY_*`, `SMTP_*`, `STRIPE_*`
+
+After first deploy, try logging in from the frontend with the credentials above. If you changed DB, a restart will re-run `migrate deploy` and `db seed` so the admin exists.
+
 ### Windows quickstart (Docker + scripts)
 
 If you use Docker Desktop for Postgres, the repo includes helper scripts that automate DB bring-up and checks:

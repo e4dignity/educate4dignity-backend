@@ -1,0 +1,41 @@
+services:
+  # Backend API Service (NestJS + Prisma)
+  - type: web
+    name: educate4dignity-backend
+    runtime: node
+    region: frankfurt
+    buildCommand: npm ci && npx prisma generate && npx prisma migrate deploy && npx tsc -p tsconfig.build.json
+    # Ensure DB is migrated and seeded on each start so the super admin exists on new databases
+    startCommand: npx prisma migrate deploy && npx prisma db seed && node dist/main.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: SITE_URL
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_TEST_CHECKOUT_URL
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: 587
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
