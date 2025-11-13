@@ -8,9 +8,50 @@
     - npm run prisma:seed  (or: npx prisma db seed)
 */
 import { PrismaClient, ProjectStatus, ProjectType, RoleName } from '@prisma/client';
+import { v2 as cloudinary } from 'cloudinary';
 import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
+
+// --- Cloudinary setup for seeding images ---
+function requireCloudinaryConfig() {
+  const cn = process.env.CLOUDINARY_CLOUD_NAME;
+  const ak = process.env.CLOUDINARY_API_KEY;
+  const sk = process.env.CLOUDINARY_API_SECRET;
+  if (!cn || !ak || !sk) {
+    throw new Error('[seed] Cloudinary is required for seeding images. Please set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET');
+  }
+  cloudinary.config({
+    cloud_name: cn,
+    api_key: ak,
+    api_secret: sk,
+  });
+}
+
+async function uploadToCloudinary(publicId: string, sourceUrl: string, folder = 'e4d/seed'): Promise<string> {
+  const res = await cloudinary.uploader.upload(sourceUrl, {
+    public_id: publicId,
+    folder,
+    overwrite: true,
+    resource_type: 'image',
+  } as any);
+  return res.secure_url as string;
+}
+
+// Sample remote sources used as base for Cloudinary uploads into the project's cloud
+// These URLs are fetched by Cloudinary and re-hosted under your account. Feel free to replace with your own assets.
+const SEED_IMAGE_SOURCES = {
+  projects: {
+    '1': 'https://res.cloudinary.com/demo/image/upload/sample.jpg',
+    '2': 'https://res.cloudinary.com/demo/image/upload/balloons.jpg',
+    '3': 'https://res.cloudinary.com/demo/image/upload/dog.jpg',
+  },
+  blogs: {
+    'from-absenteeism-to-attendance': 'https://res.cloudinary.com/demo/image/upload/sample.jpg',
+    'coops-women-led-production': 'https://res.cloudinary.com/demo/image/upload/balloons.jpg',
+    'training-day-mhm-basics': 'https://res.cloudinary.com/demo/image/upload/dog.jpg',
+  },
+} as const;
 
 type SeedProject = {
   id: string;
@@ -43,7 +84,7 @@ const projects: SeedProject[] = [
     spent: 0,
     shortDescription:
       'Training local women to sew reusable menstrual hygiene kits and distributing 1,200 dignity packs to school girls with tracking of usage and retention.',
-    coverImage: '/images/placeholder-water.svg',
+  coverImage: undefined, // Will be set to Cloudinary URL during seed
     organisation: 'Educate4Dignity',
     operators: ['SaCoDé'],
     primaryOperator: 'SaCoDé',
@@ -60,7 +101,7 @@ const projects: SeedProject[] = [
     spent: 0,
     shortDescription:
       'Implementing participatory menstrual health curriculum in 15 schools, training 30 female facilitators and upgrading 10 girl-friendly washrooms.',
-    coverImage: '/images/placeholder-literacy.svg',
+  coverImage: undefined, // Will be set to Cloudinary URL during seed
     organisation: 'Educate4Dignity',
     operators: ['Local Schools'],
     primaryOperator: 'Local Schools',
@@ -77,7 +118,7 @@ const projects: SeedProject[] = [
     spent: 0,
     shortDescription:
       'Mixed-method research measuring school attendance, confidence, and health outcomes post kit distribution & education sessions across 5 districts.',
-    coverImage: '/images/placeholder-generic.svg',
+  coverImage: undefined, // Will be set to Cloudinary URL during seed
     organisation: 'Educate4Dignity',
   },
 ];
@@ -114,7 +155,7 @@ const blogs: SeedBlog[] = [
     slug: 'from-absenteeism-to-attendance',
     title: 'From absenteeism to attendance: reusable kits at school',
     author: 'E4D Ops',
-    coverImageUrl: '/photos/Dossier/02.png',
+  coverImageUrl: undefined, // Will be set to Cloudinary URL during seed
     summary: 'Amina’s story: a simple reusable kit, practical training, and the missed days stopped.',
     contentHtml: mdToHtml(`In many rural parts of Africa, hardship shows up in the small details of daily life. Water is sometimes far away, school latrines lack privacy, and a family budget can’t always cover disposable pads. In Burundi, one pad often costs the equivalent of a meal. When market prices rise, priorities shift and girls stay home during their periods.
 
@@ -134,7 +175,7 @@ The following month, Amina was in class all week. She raised her hand, rejoined 
     slug: 'coops-women-led-production',
     title: '“No more stigma. Just dignity.”',
     author: 'Esperance',
-    coverImageUrl: '/photos/Dossier/Generated Image October 02, 2025 - 8_50AM (1).png',
+  coverImageUrl: undefined, // Will be set to Cloudinary URL during seed
     summary: 'In a displacement site near Goma, a simple hygiene corner and a reusable kit brought school and dignity back.',
     contentHtml: mdToHtml(`On the outskirts of Goma, Esperance lives in a displacement site where water arrives in rotations and latrines are shared. When her period starts, she often stays under the tent. She fears leaks, smell, and teasing. The school is close, but dignity feels far away.
 
@@ -152,7 +193,7 @@ By the next month, Esperance is back in class all week. She sits closer to the b
     slug: 'training-day-mhm-basics',
     title: '“My daughter now has confidence.”',
     author: 'Grace',
-    coverImageUrl: '/photos/Dossier/Generated Image October 02, 2025 - 8_39AM.png',
+  coverImageUrl: undefined, // Will be set to Cloudinary URL during seed
     summary: 'A mother’s perspective on how a reusable kit and teacher talks restored confidence at home and at school.',
     contentHtml: mdToHtml(`Grace remembers her daughter speaking in a low voice about her period. She avoided sports, asked to go home early, and feared leaks. In the evening, the mother felt powerless. She watched shyness take over and the desire to learn fade.
 
@@ -170,6 +211,18 @@ Around them, the ripple effect is clear. Neighbors ask questions, classmates sha
 ];
 
 async function upsertProjects() {
+  // Ensure Cloudinary is configured
+  requireCloudinaryConfig();
+
+  // Upload or overwrite project cover images into Cloudinary
+  const projectCoverUrls: Record<string, string> = {};
+  for (const p of projects) {
+    const src = (SEED_IMAGE_SOURCES.projects as any)[p.id];
+    if (!src) continue;
+    const url = await uploadToCloudinary(`project-${p.id}`, src);
+    projectCoverUrls[p.id] = url;
+  }
+
   for (const p of projects) {
     await prisma.project.upsert({
       where: { id: p.id },
@@ -184,7 +237,7 @@ async function upsertProjects() {
         spent: p.spent ?? 0,
         shortDescription: p.shortDescription,
         longDescription: p.longDescription,
-        coverImage: p.coverImage,
+  coverImage: projectCoverUrls[p.id] || p.coverImage,
         organisation: p.organisation || 'Educate4Dignity',
         operators: p.operators || [],
         primaryOperator: p.primaryOperator,
@@ -204,7 +257,7 @@ async function upsertProjects() {
         manager: 'Jessica Luiru',
         shortDescription: p.shortDescription,
         longDescription: p.longDescription,
-        coverImage: p.coverImage,
+        coverImage: projectCoverUrls[p.id] || p.coverImage,
         videoUrl: undefined,
         operators: p.operators || [],
         primaryOperator: p.primaryOperator,
@@ -214,7 +267,15 @@ async function upsertProjects() {
 }
 
 async function upsertBlogs() {
+  // Ensure Cloudinary is configured
+  requireCloudinaryConfig();
+
   for (const b of blogs) {
+    const src = (SEED_IMAGE_SOURCES.blogs as any)[b.slug];
+    if (!src) {
+      throw new Error(`[seed] Missing Cloudinary source mapping for blog slug: ${b.slug}`);
+    }
+    const coverUrl = await uploadToCloudinary(`blog-${b.slug}`, src);
     await prisma.blogPost.upsert({
       where: { slug: b.slug },
       update: {
@@ -222,7 +283,7 @@ async function upsertBlogs() {
         summary: b.summary,
         contentHtml: b.contentHtml,
         author: b.author,
-        coverImageUrl: b.coverImageUrl,
+        coverImageUrl: coverUrl,
         category: b.category || 'impact',
         tags: b.tags || [],
         readMinutes: b.readMinutes || 5,
@@ -235,7 +296,7 @@ async function upsertBlogs() {
         summary: b.summary,
         contentHtml: b.contentHtml,
         author: b.author,
-        coverImageUrl: b.coverImageUrl,
+        coverImageUrl: coverUrl,
         category: b.category || 'impact',
         tags: b.tags || [],
         readMinutes: b.readMinutes || 5,
