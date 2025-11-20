@@ -21,7 +21,9 @@ RUN apt-get update -y && apt-get install -y --no-install-recommends openssl ca-c
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/.env ./.env
+COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/docker-entrypoint.sh ./docker-entrypoint.sh
+RUN chmod +x ./docker-entrypoint.sh
 EXPOSE 4000
-# Use the same entrypoint as package.json start:prod
-CMD ["node", "dist/main.js"]
+# Migrate + Seed + Start
+CMD ["./docker-entrypoint.sh"]

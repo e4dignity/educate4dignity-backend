@@ -17,11 +17,16 @@ async function bootstrap() {
   // Increase body size limits to allow project creation payloads with attachments/large descriptions
   app.use(json({ limit: '10mb' }));
   app.use(urlencoded({ extended: true, limit: '10mb' }));
-  // Configure CORS explicitly to allow the cPanel site and Authorization headers
-  const allowedOrigins = [
+  // Configure CORS: allow cPanel site(s) and optionally additional origins via env (CORS_ORIGINS)
+  const defaultAllowed = [
     'https://e4dignity.org',
     'https://www.e4dignity.org',
   ];
+  const extra = (process.env.CORS_ORIGINS || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+  const allowedOrigins = [...defaultAllowed, ...extra];
   app.enableCors({
     origin: (origin, callback) => {
       // Allow no-origin (curl/health checks) and explicit allowed origins

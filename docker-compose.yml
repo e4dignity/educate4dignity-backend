@@ -1,0 +1,38 @@
+services:
+  postgres:
+    image: postgres:15.6-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-e4d}
+      POSTGRES_USER: ${POSTGRES_USER:-e4d}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-e4dpass}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    environment:
+      # Force internal DB host to the compose service name
+      DATABASE_URL: postgresql://e4d:e4dpass@postgres:5432/e4d?schema=public
+      PORT: ${PORT:-4000}
+      NODE_ENV: production
+      # Allow local Vite dev origins by default; override in .env if needed
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:3003}
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:

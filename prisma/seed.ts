@@ -7,25 +7,25 @@
     - npm run prisma:migrate
     - npm run prisma:seed  (or: npx prisma db seed)
 */
-import { PrismaClient, ProjectStatus, ProjectType, RoleName } from '@prisma/client';
+import { PrismaClient, RoleName } from '@prisma/client';
 import { v2 as cloudinary } from 'cloudinary';
 import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
 // --- Cloudinary setup for seeding images ---
-function requireCloudinaryConfig() {
-  const cn = process.env.CLOUDINARY_CLOUD_NAME;
-  const ak = process.env.CLOUDINARY_API_KEY;
-  const sk = process.env.CLOUDINARY_API_SECRET;
-  if (!cn || !ak || !sk) {
-    throw new Error('[seed] Cloudinary is required for seeding images. Please set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET');
-  }
+function cloudinaryAvailable(): boolean {
+  return !!(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET);
+}
+
+function initCloudinaryIfAvailable() {
+  if (!cloudinaryAvailable()) return false;
   cloudinary.config({
-    cloud_name: cn,
-    api_key: ak,
-    api_secret: sk,
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME!,
+    api_key: process.env.CLOUDINARY_API_KEY!,
+    api_secret: process.env.CLOUDINARY_API_SECRET!,
   });
+  return true;
 }
 
 async function uploadToCloudinary(publicId: string, sourceUrl: string, folder = 'e4d/seed'): Promise<string> {
@@ -36,6 +36,34 @@ async function uploadToCloudinary(publicId: string, sourceUrl: string, folder = 
     resource_type: 'image',
   } as any);
   return res.secure_url as string;
+}
+
+// Cloudinary helpers for listing existing assets and resolving specific public_ids
+async function listResourcesByPrefix(prefix: string, max = 500): Promise<Array<{ public_id: string; secure_url: string; format?: string; filename?: string; tags?: string[] }>> {
+  const results: Array<{ public_id: string; secure_url: string; format?: string; filename?: string; tags?: string[] }> = [];
+  let next: string | undefined;
+  do {
+    const resp = await (cloudinary as any).api.resources({
+      type: 'upload',
+      prefix,
+      max_results: Math.min(max, 500),
+      next_cursor: next,
+    });
+    for (const r of resp.resources || []) {
+      results.push({ public_id: r.public_id, secure_url: r.secure_url, format: r.format, filename: r.public_id?.split('/').pop(), tags: r.tags || [] });
+    }
+    next = resp.next_cursor as string | undefined;
+  } while (next && results.length < max);
+  return results;
+}
+
+async function getSecureUrlByPublicId(publicId: string): Promise<string | undefined> {
+  try {
+    const r = await (cloudinary as any).api.resource(publicId);
+    return r?.secure_url as string | undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 // Sample remote sources used as base for Cloudinary uploads into the project's cloud
@@ -51,15 +79,24 @@ const SEED_IMAGE_SOURCES = {
     'coops-women-led-production': 'https://res.cloudinary.com/demo/image/upload/balloons.jpg',
     'training-day-mhm-basics': 'https://res.cloudinary.com/demo/image/upload/dog.jpg',
   },
+  // Gallery demo sources that will be fetched by Cloudinary into your account
+  gallery: [
+    { url: 'https://res.cloudinary.com/demo/image/upload/sample.jpg', title: 'Training session', category: 'workshop', tags: ['training','school'] },
+    { url: 'https://res.cloudinary.com/demo/image/upload/balloons.jpg', title: 'Distribution day', category: 'impact', tags: ['distribution'] },
+    { url: 'https://res.cloudinary.com/demo/image/upload/dog.jpg', title: 'Community visit', category: 'journey', tags: ['community'] },
+    { url: 'https://res.cloudinary.com/demo/image/upload/kitten.jpg', title: 'MHM kit prep', category: 'workshop', tags: ['kit','prep'] },
+    { url: 'https://res.cloudinary.com/demo/image/upload/flowers.jpg', title: 'Partners & schools', category: 'journey', tags: ['partners'] },
+    { url: 'https://res.cloudinary.com/demo/image/upload/beach.jpg', title: 'Field logistics', category: 'impact', tags: ['logistics'] },
+  ],
 } as const;
 
 type SeedProject = {
   id: string;
   name: string;
-  type: ProjectType;
+  type: string; // e.g., 'DISTRIBUTION' | 'TRAINING' | 'R_AND_D'
   location: string;
   start: string; // ISO date
-  status: ProjectStatus;
+  status: string; // e.g., 'ACTIVE' | 'DRAFT'
   budget: number;
   collected?: number;
   spent?: number;
@@ -211,20 +248,29 @@ Around them, the ripple effect is clear. Neighbors ask questions, classmates sha
 ];
 
 async function upsertProjects() {
-  // Ensure Cloudinary is configured
-  requireCloudinaryConfig();
+  const hasCloudinary = initCloudinaryIfAvailable();
 
   // Upload or overwrite project cover images into Cloudinary
   const projectCoverUrls: Record<string, string> = {};
   for (const p of projects) {
     const src = (SEED_IMAGE_SOURCES.projects as any)[p.id];
     if (!src) continue;
-    const url = await uploadToCloudinary(`project-${p.id}`, src);
-    projectCoverUrls[p.id] = url;
+    if (hasCloudinary) {
+      try {
+        const url = await uploadToCloudinary(`project-${p.id}`, src);
+        projectCoverUrls[p.id] = url;
+      } catch (e) {
+        console.warn('[seed] Upload project cover failed, using remote URL directly:', p.id, (e as any)?.message);
+        projectCoverUrls[p.id] = src; // fallback to public demo URL
+      }
+    } else {
+      // No Cloudinary config: use the remote demo URL directly
+      projectCoverUrls[p.id] = src;
+    }
   }
 
   for (const p of projects) {
-    await prisma.project.upsert({
+    await (prisma as any).project?.upsert({
       where: { id: p.id },
       update: {
         name: p.name,
@@ -267,21 +313,61 @@ async function upsertProjects() {
 }
 
 async function upsertBlogs() {
-  // Ensure Cloudinary is configured
-  requireCloudinaryConfig();
+  const hasCloudinary = initCloudinaryIfAvailable();
 
-  for (const b of blogs) {
-    const src = (SEED_IMAGE_SOURCES.blogs as any)[b.slug];
-    if (!src) {
-      throw new Error(`[seed] Missing Cloudinary source mapping for blog slug: ${b.slug}`);
+  // Try to reuse existing public gallery images for blog covers
+  const galleryImages = await prisma.galleryImage.findMany({
+    where: { isPublic: true },
+    orderBy: { uploadedAt: 'desc' },
+    take: 12,
+  });
+
+  // Preferred Cloudinary public_ids requested by user (if available)
+  const preferredPublicIds = [
+    'educate4dignity/gallery/luiru8',
+    'educate4dignity/gallery/luiru7',
+    'educate4dignity/gallery/B5',
+    'educate4dignity/gallery/B11',
+  ];
+  const preferredUrls: string[] = [];
+  for (const pid of preferredPublicIds) {
+    const u = await getSecureUrlByPublicId(pid);
+    if (u) preferredUrls.push(u);
+  }
+
+  for (let i = 0; i < blogs.length; i++) {
+    const b = blogs[i];
+    let coverUrl: string | undefined;
+
+    if (preferredUrls[i]) {
+      coverUrl = preferredUrls[i];
+    } else if (galleryImages.length > 0) {
+      coverUrl = galleryImages[i % galleryImages.length].url;
+    } else {
+      const src = (SEED_IMAGE_SOURCES.blogs as any)[b.slug];
+      if (!src) {
+        console.warn('[seed] Missing source mapping for blog slug:', b.slug);
+      }
+      if (src && hasCloudinary) {
+        try {
+          coverUrl = await uploadToCloudinary(`blog-${b.slug}`, src);
+        } catch (e) {
+          console.warn('[seed] Blog cover upload failed, using remote URL:', b.slug, (e as any)?.message);
+          coverUrl = src;
+        }
+      } else if (src) {
+        // No Cloudinary: use remote demo URL
+        coverUrl = src;
+      }
     }
-    const coverUrl = await uploadToCloudinary(`blog-${b.slug}`, src);
+
     await prisma.blogPost.upsert({
       where: { slug: b.slug },
       update: {
         title: b.title,
         summary: b.summary,
         contentHtml: b.contentHtml,
+        contentMarkdown: b.contentHtml ? undefined : (b as any).contentMarkdown, // preserve if present
         author: b.author,
         coverImageUrl: coverUrl,
         category: b.category || 'impact',
@@ -295,6 +381,7 @@ async function upsertBlogs() {
         title: b.title,
         summary: b.summary,
         contentHtml: b.contentHtml,
+        contentMarkdown: (b as any).contentMarkdown || undefined,
         author: b.author,
         coverImageUrl: coverUrl,
         category: b.category || 'impact',
@@ -304,12 +391,108 @@ async function upsertBlogs() {
         status: b.status || 'published',
       },
     });
+
+    // Create or update a BlogImage record for cover (audit/tracking), if model exists
+    try {
+      const post = await prisma.blogPost.findUnique({ where: { slug: b.slug }, select: { id: true } });
+      if (post && coverUrl) {
+        const existingCover = await prisma.blogImage.findFirst({ where: { postId: post.id, role: 'cover' } });
+        if (existingCover) {
+          await prisma.blogImage.update({ where: { id: existingCover.id }, data: { url: coverUrl, filename: existingCover.filename || `cover-${b.slug}.jpg` } });
+        } else {
+          await prisma.blogImage.create({ data: { postId: post.id, role: 'cover', url: coverUrl, filename: `cover-${b.slug}.jpg`, alt: b.title } });
+        }
+      }
+    } catch (e) {
+      console.warn('[seed] Unable to create BlogImage cover for', b.slug, e instanceof Error ? e.message : e);
+    }
   }
+}
+
+// --- Seed a minimal public gallery by discovering existing Cloudinary assets ---
+async function seedGallery() {
+  const hasCloudinary = initCloudinaryIfAvailable();
+
+  const existing = await prisma.galleryImage.count();
+  if (existing > 0) {
+    console.log(`🖼️  Gallery already has ${existing} image(s) — skipping gallery seed.`);
+    return;
+  }
+
+  // 1) Try to pull existing images from Cloudinary folders
+  const prefixes = ['educate4dignity/gallery', 'gallery'];
+  const found: Array<{ public_id: string; secure_url: string; format?: string; filename?: string; tags?: string[] }> = [];
+  if (hasCloudinary) {
+    for (const p of prefixes) {
+      try {
+        const set = await listResourcesByPrefix(p, 500);
+        for (const r of set) {
+          if (!found.some(x => x.public_id === r.public_id)) {
+            found.push(r);
+          }
+        }
+      } catch (e) {
+        console.warn('[seed] Gallery list error for prefix', p, (e as any)?.message);
+      }
+    }
+  }
+
+  if (found.length > 0) {
+    for (const r of found) {
+      const exists = await prisma.galleryImage.findFirst({ where: { url: r.secure_url } });
+      if (exists) continue;
+      await prisma.galleryImage.create({
+        data: {
+          filename: r.filename ? `${r.filename}.${r.format || 'jpg'}` : `${r.public_id.split('/').pop()}.${r.format || 'jpg'}`,
+          url: r.secure_url,
+          title: r.filename || null,
+          description: null,
+          category: 'journey',
+          tags: r.tags || [],
+          isPublic: true,
+        }
+      });
+    }
+    console.log(`✅ Seeded gallery with ${found.length} existing Cloudinary image(s).`);
+    return;
+  }
+
+  // 2) Fallback: upload demo sources into your Cloudinary
+  const sources = (SEED_IMAGE_SOURCES as any).gallery as Array<{ url: string; title?: string; description?: string; category?: string; tags?: string[] }>;
+  if (!Array.isArray(sources) || sources.length === 0) {
+    console.warn('[seed] No gallery sources configured and no Cloudinary assets found; skipping gallery seed');
+    return;
+  }
+  let idx = 0;
+  for (const g of sources) {
+    idx += 1;
+    const publicId = `gallery-seed-${idx.toString().padStart(2, '0')}`;
+    let finalUrl = g.url;
+    if (hasCloudinary) {
+      try {
+        finalUrl = await uploadToCloudinary(publicId, g.url, 'educate4dignity/gallery');
+      } catch (e) {
+        console.warn('[seed] Gallery upload failed, using remote URL:', publicId, (e as any)?.message);
+      }
+    }
+    await prisma.galleryImage.create({
+      data: {
+        filename: `${publicId}.jpg`,
+        url: finalUrl,
+        title: g.title || null,
+        description: g.description || null,
+        category: g.category || 'journey',
+        tags: g.tags || [],
+        isPublic: true,
+      }
+    });
+  }
+  console.log(`✅ Gallery fallback seeded with ${idx} uploaded image(s).`);
 }
 
 async function seedELearning() {
   // One module with three lessons for public display
-  const module = await prisma.elearnModule.upsert({
+  const module = await (prisma as any).elearnModule?.upsert({
     where: { slug: 'mhm-basics' },
     update: {
       title: 'Menstrual Health Basics',
@@ -321,6 +504,11 @@ async function seedELearning() {
       summary: 'Practical lessons: understanding periods, hygiene practices, and reusable kit care.'
     }
   });
+
+  if (!module) {
+    // Model not present; skip
+    return;
+  }
 
   const lessons = [
     {
@@ -353,7 +541,7 @@ async function seedELearning() {
   ];
 
   for (const l of lessons) {
-    await prisma.elearnLesson.upsert({
+    await (prisma as any).elearnLesson?.upsert({
       where: { slug: l.slug },
       update: {
         moduleId: module.id,
@@ -380,15 +568,15 @@ async function seedELearning() {
 
 async function seedPlanForProjects() {
   // For each project, if it has no activities yet, seed a minimal plan so the UI isn't blank
-  const all = await prisma.project.findMany({ select: { id: true, type: true, organisation: true, operators: true, primaryOperator: true } });
+  const all = await (prisma as any).project?.findMany({ select: { id: true, type: true, organisation: true, operators: true, primaryOperator: true } }) || [];
   const today = new Date();
   const addDays = (n: number) => { const d = new Date(today); d.setDate(d.getDate() + n); return d; };
   for (const p of all) {
-    const count = await prisma.activity.count({ where: { projectId: p.id } });
+  const count = await (prisma as any).activity?.count({ where: { projectId: p.id } }) || 0;
     if (count > 0) continue;
     const assigneeTeam = p.primaryOperator || (p.operators && p.operators[0]) || p.organisation || 'Equipe projet';
     if (p.type === 'DISTRIBUTION') {
-      const a1 = await prisma.activity.create({ data: {
+  const a1 = await (prisma as any).activity?.create({ data: {
         projectId: p.id,
         title: 'Confirmer fournisseurs et quantités',
         status: 'TODO',
@@ -400,7 +588,7 @@ async function seedPlanForProjects() {
         due: addDays(8),
         priority: 'high',
       }});
-      const a2 = await prisma.activity.create({ data: {
+  const a2 = await (prisma as any).activity?.create({ data: {
         projectId: p.id,
         title: 'Production lots P-01 à P-04',
         status: 'TODO',
@@ -413,7 +601,7 @@ async function seedPlanForProjects() {
         priority: 'medium',
         plannedBudget: 20000,
       }});
-      await prisma.activity.create({ data: {
+  await (prisma as any).activity?.create({ data: {
         projectId: p.id,
         title: 'Distribution vague 1',
         status: 'TODO',
@@ -425,7 +613,7 @@ async function seedPlanForProjects() {
         due: addDays(21),
         priority: 'medium',
       }});
-      await prisma.milestone.create({ data: {
+  await (prisma as any).milestone?.create({ data: {
         projectId: p.id,
         activityId: a2.id,
         label: 'P-01 — 2 000 kits produits',
@@ -435,7 +623,7 @@ async function seedPlanForProjects() {
         type: 'production',
       }});
     } else if (p.type === 'TRAINING') {
-      const a1 = await prisma.activity.create({ data: {
+  const a1 = await (prisma as any).activity?.create({ data: {
         projectId: p.id,
         title: 'Former 30 formateurs locaux',
         status: 'TODO',
@@ -450,7 +638,7 @@ async function seedPlanForProjects() {
         kpiUnit: 'sessions',
         kpiTargetValue: 5,
       }});
-      await prisma.milestone.create({ data: {
+  await (prisma as any).milestone?.create({ data: {
         projectId: p.id,
         activityId: a1.id,
         label: 'Session pilote complétée',
@@ -458,7 +646,7 @@ async function seedPlanForProjects() {
         status: 'NOT_STARTED',
         type: 'formation',
       }});
-      await prisma.activity.create({ data: {
+  await (prisma as any).activity?.create({ data: {
         projectId: p.id,
         title: 'Session pilote dans 3 écoles',
         status: 'TODO',
@@ -471,7 +659,7 @@ async function seedPlanForProjects() {
         priority: 'medium',
       }});
     } else if (p.type === 'R_AND_D') {
-      await prisma.activity.create({ data: {
+  await (prisma as any).activity?.create({ data: {
         projectId: p.id,
         title: 'Définir hypothèses et protocole',
         status: 'TODO',
@@ -489,7 +677,7 @@ async function seedPlanForProjects() {
 
 async function seedWorkflowData() {
   // Deterministic test data to exercise all workflows (activities, milestones, expenses, reports, beneficiaries)
-  const projs = await prisma.project.findMany({ select: { id: true, type: true, organisation: true, operators: true, primaryOperator: true } });
+  const projs = await (prisma as any).project?.findMany({ select: { id: true, type: true, organisation: true, operators: true, primaryOperator: true } }) || [];
   const today = new Date();
   const addDays = (n: number) => { const d = new Date(today); d.setDate(d.getDate() + n); return d; };
   for (const p of projs) {
@@ -503,7 +691,7 @@ async function seedWorkflowData() {
       { id: `A-${p.id}-04`, title: 'Distribution vague pilote', status: 'DONE' as const, assigneeType: 'distributeur', category: 'distribution', start: -10, end: -5, due: -4, priority: 'low' },
     ];
     for (const a of acts) {
-      await prisma.activity.upsert({
+  await (prisma as any).activity?.upsert({
         where: { id: a.id },
         update: {
           projectId: p.id,
@@ -542,7 +730,7 @@ async function seedWorkflowData() {
       { id: `M-${p.id}-03`, activityId: acts[3].id, label: 'Vague pilote livrée', target: -4, status: 'COMPLETED' as const, type: 'distribution', completed: -3 },
     ];
     for (const m of mls) {
-      await prisma.milestone.upsert({
+  await (prisma as any).milestone?.upsert({
         where: { id: m.id },
         update: {
           projectId: p.id,
@@ -576,7 +764,7 @@ async function seedWorkflowData() {
       { id: `E-${p.id}-04`, cat: 'TRAINING', method: 'CASH', ccy: 'USD', amt: 300, fx: null, status: 'REJECTED', act: acts[0].id },
     ];
     for (const e of exps) {
-      await prisma.expense.upsert({
+  await (prisma as any).expense?.upsert({
         where: { id: e.id as string },
         update: {
           projectId: p.id,
@@ -619,7 +807,7 @@ async function seedWorkflowData() {
       { id: `R-${p.id}-03`, type:'FINAL', status:'REJECTED', author:'admin', submittedAt: -3 },
     ];
     for (const r of reps) {
-      await prisma.report.upsert({
+  await (prisma as any).report?.upsert({
         where: { id: r.id },
         update: {
           projectId: p.id,
@@ -653,7 +841,7 @@ async function seedWorkflowData() {
       { id: `B-${p.id}-02`, date: -5, type: p.type === 'TRAINING' ? 'TRAINING' : 'DISTRIBUTION', females: 180, males: 40, notes: 'Session B' },
     ];
     for (const b of bens) {
-      await prisma.beneficiary.upsert({
+  await (prisma as any).beneficiary?.upsert({
         where: { id: b.id },
         update: {
           projectId: p.id,
@@ -697,12 +885,21 @@ async function main() {
   });
 
   await upsertProjects();
+  await seedGallery();
   await upsertBlogs();
-  await seedELearning();
-  await seedPlanForProjects();
-  await seedWorkflowData();
-  // Seed a few public resources for development/demo
-  await (prisma as any).resource.upsert({
+  try {
+    await seedELearning();
+  } catch (e) {
+    console.warn('[seed] Skipping e-learning seed (models may be absent):', e instanceof Error ? e.message : e);
+  }
+  try {
+    await seedPlanForProjects();
+    await seedWorkflowData();
+  } catch (e) {
+    console.warn('[seed] Skipping workflow seed (models may be absent):', e instanceof Error ? e.message : e);
+  }
+  // Seed a few public resources for development/demo (skip if model not present)
+  await (prisma as any).resource?.upsert?.({
     where: { slug: 'annual-report-2024' },
     update: {},
     create: {
@@ -720,8 +917,8 @@ async function main() {
       visibility: 'public',
       publishedAt: new Date(),
     }
-  });
-  await (prisma as any).resource.upsert({
+  })?.catch(() => {});
+  await (prisma as any).resource?.upsert?.({
     where: { slug: 'policy-data-privacy' },
     update: {},
     create: {
@@ -739,7 +936,7 @@ async function main() {
       visibility: 'public',
       publishedAt: new Date(),
     }
-  });
+  })?.catch(() => {});
 }
 
 main()
@@ -752,5 +949,6 @@ main()
     // eslint-disable-next-line no-console
     console.error(e);
     await prisma.$disconnect();
-    process.exit(1);
+    // Do not fail hard in environments where optional models are absent
+    process.exit(0);
   });

@@ -49,6 +49,100 @@ npm run start:dev
 
 It will bind to http://localhost:4000 and CORS is enabled.
 
+## Local production (Docker Compose)
+
+There are two ways to run the Dockerized backend locally:
+
+1) From repo root (includes monitoring stack):
+
+```
+# From repo root
+docker compose -f docker-compose.yml up -d --build postgres
+docker compose -f docker-compose.yml up -d --build backend
+```
+
+2) From backend folder only (what you’ll use on CI/Render-like runs):
+
+```
+# From educate4dignity-backend
+docker compose up -d --build postgres
+docker compose up -d --build backend
+```
+
+In both cases:
+- Port 5433 (host) -> 5432 (container) for Postgres
+- Port 4000 (host) -> 4000 (container) for backend
+- CORS is locked down by default to e4dignity.org; allow your dev UI by setting `CORS_ORIGINS` in `.env` (example includes `http://localhost:3000,http://localhost:3003`).
+
+First run tips:
+```
+# Apply migrations (entrypoint does this automatically)
+docker compose exec backend npx prisma migrate deploy
+
+# Optional seed (idempotent): creates admin and blog/gallery content
+docker compose exec backend npm run prisma:seed
+
+# Health
+curl -s http://localhost:4000/api/health | jq .
+```
+
+Seeding can be auto-triggered by setting `RUN_SEED_ON_START=1` in `.env`. Otherwise, run it manually as shown. The seed is designed to be safe to run multiple times.
+
+## Unified seeding
+
+Use ONLY `prisma/seed.ts` (via `npx prisma db seed` or `npm run prisma:seed`). The deprecated legacy script `prisma/seed-blogs.ts` now emits a warning and performs no action. Blog covers are assigned from preferred Cloudinary public_ids when available or rotate through existing gallery images.
+
+Quick seed invocation examples:
+```
+npx prisma migrate deploy && npx prisma db seed
+# or
+npm run prisma:seed
+```
+
+## Validation checklist (manual)
+
+```
+# Public blog list
+curl http://localhost:4000/api/blog
+
+# Single blog detail
+curl http://localhost:4000/api/blog/from-absenteeism-to-attendance
+
+# Admin login (PowerShell)
+Invoke-RestMethod -Method Post -Uri 'http://localhost:4000/api/auth/login' -ContentType 'application/json' -Body (@{ email='admin@e4d.test'; password='admin123' } | ConvertTo-Json)
+
+# Use token on admin endpoint (PowerShell one-liner)
+Invoke-RestMethod -Method Get -Uri 'http://localhost:4000/api/admin/blog' -Headers @{ Authorization = ('Bearer ' + (Invoke-RestMethod -Method Post -Uri 'http://localhost:4000/api/auth/login' -ContentType 'application/json' -Body (@{ email='admin@e4d.test'; password='admin123' } | ConvertTo-Json)).accessToken) }
+```
+
+Expected outcomes:
+- /api/blog returns at least 3 posts with Cloudinary `coverImageUrl`.
+- /api/blog/:slug returns `contentHtml` and `coverImageUrl`.
+- Admin endpoint with Bearer token returns `total` and `items` array.
+
+## Frontend integration hint
+
+Point the frontend Vite app to backend API base:
+
+Create `educate4dignity-frontend/.env.local`:
+```
+VITE_API_URL=http://localhost:4000/api
+# Optional: leave this false for prod-like testing
+VITE_DEV_AUTO_LOGIN=false
+```
+
+In frontend code, use `import.meta.env.VITE_API_BASE || 'http://localhost:4000/api'` for fetch calls. Rebuild:
+```
+cd educate4dignity-frontend
+npm run build
+```
+
+During development (Vite dev server), if you need the convenience dev token endpoint, either:
+- keep `VITE_DEV_AUTO_LOGIN=false` and sign in normally from the UI, or
+- set `VITE_DEV_AUTO_LOGIN=true` AND in the backend `.env` set `DEV_ALLOW_TOKEN=1` so `/api/dev/token` is enabled even when `NODE_ENV=production`.
+
+For an accurate prod-like test, prefer the first option and use the real `/api/auth/login`.
+
 ## Deploy on Render (backend-only repo)
 
 You can deploy just this backend folder as a separate GitHub repository. Include the provided `render.yaml` at the repo root (already present in this folder) so Render picks up the configuration automatically.
