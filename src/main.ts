@@ -21,6 +21,7 @@ async function bootstrap() {
   const defaultAllowed = [
     'https://e4dignity.org',
     'https://www.e4dignity.org',
+    'https://educate4dignity-frontend.onrender.com',
   ];
   const extra = (process.env.CORS_ORIGINS || '')
     .split(',')
