@@ -206,7 +206,9 @@ export class UploadsController {
         }
       }
 
-      // Ensure BlogImage table exists (non-destructive, dev-friendly)
+      // Ensure BlogImage table exists (non-destructive, dev-friendly).
+      // Postgres drivers may reject multiple statements in a single prepared statement,
+      // so execute the DDL statements separately.
       await this.prisma.$executeRawUnsafe(`
         CREATE TABLE IF NOT EXISTS "BlogImage" (
           "id" TEXT PRIMARY KEY,
@@ -218,8 +220,10 @@ export class UploadsController {
           "width" INTEGER NULL,
           "height" INTEGER NULL,
           "uploadedAt" TIMESTAMP NOT NULL DEFAULT NOW()
-        );
-        CREATE INDEX IF NOT EXISTS "_idx_blogimage_postid" ON "BlogImage" ("postId");
+        )
+      `);
+      await this.prisma.$executeRawUnsafe(`
+        CREATE INDEX IF NOT EXISTS "_idx_blogimage_postid" ON "BlogImage" ("postId")
       `);
 
       // Persist BlogImage record via raw SQL (works even if Prisma client types aren't regenerated)

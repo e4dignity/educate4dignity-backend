@@ -147,7 +147,7 @@ export class AdminBlogController {
     const coverUrl = body.coverImageUrl || body.cover_image_url;
     if (coverUrl) {
       try {
-        // Ensure BlogImage table exists (non-destructive) & add FK if missing
+        // Ensure BlogImage table exists (non-destructive). Single statement only.
         await this.prisma.$executeRawUnsafe(`
           CREATE TABLE IF NOT EXISTS "BlogImage" (
             "id" TEXT PRIMARY KEY,
@@ -159,7 +159,7 @@ export class AdminBlogController {
             "width" INTEGER NULL,
             "height" INTEGER NULL,
             "uploadedAt" TIMESTAMP NOT NULL DEFAULT NOW()
-          );
+          )
         `);
         // Insert only if no existing cover image with same URL for this post
         const existing = await this.prisma.$queryRaw<any[]>`SELECT "id" FROM "BlogImage" WHERE "postId" = ${saved.id} AND "role" = 'cover' AND "url" = ${coverUrl} LIMIT 1;`;
