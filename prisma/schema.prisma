@@ -91,7 +91,8 @@ model BlogPost {
   relatedSlugs          String[] @default([])
   seoTitle              String?
   seoDescription        String?  @db.Text
-  publishedAt           DateTime? @default(now())
+  // publishedAt null means draft. Removed default(now()) so creation without publish stays draft.
+  publishedAt           DateTime?
   status                String   @default("published")
   views                 Int      @default(0)
   createdAt             DateTime @default(now())

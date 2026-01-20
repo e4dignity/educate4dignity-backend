@@ -126,7 +126,10 @@ export class AdminBlogController {
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/(^-|-$)/g, '');
-    const publishedAtValue = body.publishedAt ? new Date(body.publishedAt) : (body.status === 'published' ? now : undefined);
+    // Drafts must persist publishedAt as null (not undefined). Use null instead of leaving field untouched.
+    const publishedAtValue = body.publishedAt
+      ? new Date(body.publishedAt)
+      : (body.status === 'published' ? now : null);
     const saved = await this.prisma.blogPost.create({
       data: {
         slug,
@@ -192,8 +195,8 @@ export class AdminBlogController {
     const existing = await this.prisma.blogPost.findUnique({ where: { slug } });
     if (!existing) return null;
     const publishedAtUpdate = typeof body.status === 'string'
-      ? (body.status === 'published' ? (existing.publishedAt || new Date()) : undefined)
-      : (body.publishedAt ? new Date(body.publishedAt) : undefined);
+      ? (body.status === 'published' ? (existing.publishedAt || new Date()) : null)
+      : (body.publishedAt ? new Date(body.publishedAt) : existing.publishedAt);
     const saved = await this.prisma.blogPost.update({
       where: { slug },
       data: {
@@ -241,7 +244,8 @@ export class AdminBlogController {
 
   @Post(':slug/unpublish')
   async unpublish(@Param('slug') slug: string) {
-    await this.prisma.blogPost.update({ where: { slug }, data: { publishedAt: undefined } });
+    // Explicitly set publishedAt to null to mark as draft
+    await this.prisma.blogPost.update({ where: { slug }, data: { publishedAt: null } });
     return { ok: true };
   }
 
