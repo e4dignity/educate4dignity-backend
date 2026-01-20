@@ -41,7 +41,9 @@ export class BlogService {
       slug: r.slug,
       title: r.title,
       category: r.category,
+      // Provide both `coverImageUrl` (backend canonical) and `coverImage` (frontend expects this in several places)
       coverImageUrl: r.coverImageUrl || undefined,
+      coverImage: r.coverImageUrl || undefined,
       summary: r.summary,
       author: r.author,
       publishedAt: r.publishedAt ? r.publishedAt.toISOString() : undefined,
@@ -76,7 +78,9 @@ export class BlogService {
       summary: r.summary,
       contentHtml: r.contentHtml,
       category: r.category,
+      // Mirror cover URL under both names for frontend compatibility
       coverImageUrl: r.coverImageUrl || undefined,
+      coverImage: r.coverImageUrl || undefined,
       author: r.author,
       publishedAt: r.publishedAt ? r.publishedAt.toISOString() : undefined,
       tags: r.tags || [],
