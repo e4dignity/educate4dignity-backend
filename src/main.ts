@@ -12,7 +12,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   // ======================================================
-  // 1. CORS - MUST BE INITIALIZED FIRST
+  // 1. CORS - DOIT ÊTRE INITIALISÉ EN PREMIER
   // ======================================================
   const allowedOrigins = [
     'https://e4dignity.org',
@@ -22,8 +22,8 @@ async function bootstrap() {
 
   app.enableCors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps or curl) 
-      // or check if the origin is in the allowed list
+      // Autorise les requêtes sans origin (comme Postman ou les outils serveurs)
+      // ou si l'origine est dans la liste autorisée
       if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
@@ -38,10 +38,10 @@ async function bootstrap() {
   });
 
   // ======================================================
-  // 2. SECURITY MIDDLEWARES
+  // 2. MIDDLEWARES DE SÉCURITÉ
   // ======================================================
+  // Configuration spécifique de Helmet pour ne pas bloquer le Cross-Origin
   app.use(helmet({
-    // Important: Disable standard resource policy which can block cross-origin loads
     crossOriginResourcePolicy: { policy: "cross-origin" },
     crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" }
   }));
@@ -50,7 +50,7 @@ async function bootstrap() {
   app.use(urlencoded({ extended: true, limit: '10mb' }));
 
   // ======================================================
-  // 3. GLOBAL CONFIGURATION
+  // 3. CONFIGURATION GLOBALE
   // ======================================================
   app.setGlobalPrefix('api');
 
@@ -62,7 +62,7 @@ async function bootstrap() {
   }));
 
   // ======================================================
-  // 4. METRICS & PROMETHEUS
+  // 4. MÉTRIQUES & PROMETHEUS
   // ======================================================
   app.use((req: Request, res: Response, next: NextFunction) => {
     const end = httpHistogram.startTimer({ method: req.method });
@@ -79,14 +79,15 @@ async function bootstrap() {
   });
 
   // ======================================================
-  // 5. SERVER STARTUP
+  // 5. DÉMARRAGE DU SERVEUR
   // ======================================================
   const config = app.get(ConfigService);
-  // Using 0.0.0.0 is critical for Render to detect the port correctly
+  
+  // Important pour Render : écouter sur 0.0.0.0
   const port = process.env.PORT || config.get('PORT') || 4000;
 
   await app.listen(port, '0.0.0.0');
-  console.log(`Backend listening on port ${port}`);
+  console.log(`🚀 Backend running on port ${port}`);
 }
 
 bootstrap();
