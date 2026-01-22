@@ -7,15 +7,14 @@ import type { Request, Response, NextFunction } from 'express';
 import { json, urlencoded } from 'express';
 import { ValidationPipe } from '@nestjs/common';
 import { metricsRegistry as register, httpRequestDuration as httpHistogram } from './common/metrics';
-import * as bodyParser from 'body-parser';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  // ==============================
   // Security middlewares
+  // ==============================
   app.use(helmet());
-
-  // Increase body size limits
   app.use(json({ limit: '10mb' }));
   app.use(urlencoded({ extended: true, limit: '10mb' }));
 
@@ -36,21 +35,26 @@ async function bootstrap() {
   });
 
   // ==============================
-  // PRE-FLIGHT OPTIONS (très important)
+  // PRE-FLIGHT OPTIONS
+  // Permet aux requêtes OPTIONS de passer avant les guards
   // ==============================
   app.use((req: Request, res: Response, next: NextFunction) => {
     if (req.method === 'OPTIONS') {
-      // juste répondre 204, ne pas passer par les guards
+      // Réponse rapide pour preflight, headers CORS déjà ajoutés par app.enableCors
       res.sendStatus(204);
     } else {
       next();
     }
   });
 
+  // ==============================
   // Global API prefix
+  // ==============================
   app.setGlobalPrefix('api');
 
+  // ==============================
   // Validation pipe global
+  // ==============================
   app.useGlobalPipes(new ValidationPipe({
     whitelist: true,
     transform: true,
@@ -58,7 +62,9 @@ async function bootstrap() {
     forbidUnknownValues: false,
   }));
 
+  // ==============================
   // Metrics Prometheus
+  // ==============================
   app.use((req: Request, res: Response, next: NextFunction) => {
     const end = httpHistogram.startTimer({ method: req.method });
     res.on('finish', () => {
@@ -72,11 +78,12 @@ async function bootstrap() {
     res.send(await register.metrics());
   });
 
-  // Config & port
+  // ==============================
+  // Port configuration
+  // ==============================
   const config = app.get(ConfigService);
   const port = Number(process.env.PORT) || Number(config.get('PORT')) || 4000;
 
-  // Start server
   await app.listen(port);
   console.log(`Backend listening on http://localhost:${port}`);
 }
