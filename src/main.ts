@@ -3,17 +3,24 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ConfigService } from '@nestjs/config';
 import helmet from 'helmet';
+import type { Request, Response, NextFunction } from 'express';
 import { json, urlencoded } from 'express';
 import { ValidationPipe } from '@nestjs/common';
 import { metricsRegistry as register, httpRequestDuration as httpHistogram } from './common/metrics';
-import type { Request, Response, NextFunction } from 'express';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // ======================================================
-  // 1. CORS - DOIT ÊTRE INITIALISÉ EN PREMIER
-  // ======================================================
+  // ==============================
+  // Security middlewares
+  // ==============================
+  app.use(helmet());
+  app.use(json({ limit: '10mb' }));
+  app.use(urlencoded({ extended: true, limit: '10mb' }));
+
+  // ==============================
+  // CORS - fiable pour NestJS
+  // ==============================
   const allowedOrigins = [
     'https://e4dignity.org',
     'https://www.e4dignity.org',
@@ -21,39 +28,33 @@ async function bootstrap() {
   ];
 
   app.enableCors({
-    origin: (origin, callback) => {
-      // Autorise les requêtes sans origin (comme Postman ou les outils serveurs)
-      // ou si l'origine est dans la liste autorisée
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error('Not allowed by CORS'));
-      }
-    },
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+    origin: allowedOrigins,
     credentials: true,
-    allowedHeaders: 'Origin, X-Requested-With, Content-Type, Accept, Authorization',
-    preflightContinue: false,
-    optionsSuccessStatus: 204,
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization'],
   });
 
-  // ======================================================
-  // 2. MIDDLEWARES DE SÉCURITÉ
-  // ======================================================
-  // Configuration spécifique de Helmet pour ne pas bloquer le Cross-Origin
-  app.use(helmet({
-    crossOriginResourcePolicy: { policy: "cross-origin" },
-    crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" }
-  }));
-  
-  app.use(json({ limit: '10mb' }));
-  app.use(urlencoded({ extended: true, limit: '10mb' }));
+  // ==============================
+  // PRE-FLIGHT OPTIONS
+  // ==============================
+  // Permet aux requêtes OPTIONS de passer avant les guards
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    if (req.method === 'OPTIONS') {
+      // CORS headers déjà ajoutés par app.enableCors
+      res.sendStatus(204);
+    } else {
+      next();
+    }
+  });
 
-  // ======================================================
-  // 3. CONFIGURATION GLOBALE
-  // ======================================================
+  // ==============================
+  // Global API prefix
+  // ==============================
   app.setGlobalPrefix('api');
 
+  // ==============================
+  // Validation pipe global
+  // ==============================
   app.useGlobalPipes(new ValidationPipe({
     whitelist: true,
     transform: true,
@@ -61,14 +62,13 @@ async function bootstrap() {
     forbidUnknownValues: false,
   }));
 
-  // ======================================================
-  // 4. MÉTRIQUES & PROMETHEUS
-  // ======================================================
+  // ==============================
+  // Metrics Prometheus
+  // ==============================
   app.use((req: Request, res: Response, next: NextFunction) => {
     const end = httpHistogram.startTimer({ method: req.method });
     res.on('finish', () => {
-      const route = req.route?.path || req.path || 'unknown';
-      end({ route, status_code: String(res.statusCode) });
+      end({ route: req.route?.path || req.path || 'unknown', status_code: String(res.statusCode) });
     });
     next();
   });
@@ -78,16 +78,13 @@ async function bootstrap() {
     res.send(await register.metrics());
   });
 
-  // ======================================================
-  // 5. DÉMARRAGE DU SERVEUR
-  // ======================================================
+  // ==============================
+  // Port configuration
+  // ==============================
   const config = app.get(ConfigService);
-  
-  // Important pour Render : écouter sur 0.0.0.0
-  const port = process.env.PORT || config.get('PORT') || 4000;
+  const port = Number(process.env.PORT) || Number(config.get('PORT')) || 4000;
 
-  await app.listen(port, '0.0.0.0');
-  console.log(`🚀 Backend running on port ${port}`);
+  await app.listen(port);
+  console.log(`Backend listening on http://localhost:${port}`);
 }
-
 bootstrap();
