@@ -29,16 +29,16 @@ async function bootstrap() {
     .filter(Boolean);
   const allowedOrigins = [...defaultAllowed, ...extra];
   app.enableCors({
-    origin: (origin, callback) => {
-      // Allow no-origin (curl/health checks) and explicit allowed origins
-      if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
-      return callback(null, false);
-    },
+    origin: [
+      'https://e4dignity.org',
+      'https://www.e4dignity.org',
+      'https://educate4dignity-frontend.onrender.com',
+    ],
     credentials: true,
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
-    allowedHeaders: 'Origin, X-Requested-With, Content-Type, Accept, Authorization',
-    exposedHeaders: 'Content-Length, Content-Type',
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization'],
   });
+
 
   app.setGlobalPrefix('api');
   app.useGlobalPipes(new ValidationPipe({
