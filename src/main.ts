@@ -19,32 +19,47 @@ async function bootstrap() {
   app.use(urlencoded({ extended: true, limit: '10mb' }));
 
   // ==============================
-  // CORS - fiable pour NestJS
+  // Allowed CORS origins
   // ==============================
   const allowedOrigins = [
-    'https://e4dignity.org',
-    'https://www.e4dignity.org',
-    'https://educate4dignity-frontend.onrender.com',
+    'https://e4dignity.org',                   // production frontend
+    'https://www.e4dignity.org',              // production frontend
+    'https://educate4dignity-frontend.onrender.com', // internal frontend for tests
   ];
 
+  // ==============================
+  // Enable CORS
+  // ==============================
   app.enableCors({
-    origin: allowedOrigins,
+    origin: (origin, callback) => {
+      // allow requests with no origin (curl / server-to-server)
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error(`Origin ${origin} not allowed by CORS`));
+      }
+    },
     credentials: true,
-    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization'],
+    methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS','HEAD'],
+    allowedHeaders: ['Origin','X-Requested-With','Content-Type','Accept','Authorization'],
+    preflightContinue: false,
   });
 
   // ==============================
-  // PRE-FLIGHT OPTIONS
+  // Middleware global OPTIONS
   // ==============================
-  // Permet aux requêtes OPTIONS de passer avant les guards
   app.use((req: Request, res: Response, next: NextFunction) => {
     if (req.method === 'OPTIONS') {
-      // CORS headers déjà ajoutés par app.enableCors
-      res.sendStatus(204);
-    } else {
-      next();
+      res.setHeader('Access-Control-Allow-Origin', req.headers.origin as string || '');
+      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD');
+      res.setHeader(
+        'Access-Control-Allow-Headers',
+        'Origin,X-Requested-With,Content-Type,Accept,Authorization'
+      );
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      return res.sendStatus(204);
     }
+    next();
   });
 
   // ==============================
@@ -55,12 +70,14 @@ async function bootstrap() {
   // ==============================
   // Validation pipe global
   // ==============================
-  app.useGlobalPipes(new ValidationPipe({
-    whitelist: true,
-    transform: true,
-    skipMissingProperties: true,
-    forbidUnknownValues: false,
-  }));
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      transform: true,
+      skipMissingProperties: true,
+      forbidUnknownValues: false,
+    }),
+  );
 
   // ==============================
   // Metrics Prometheus
@@ -85,6 +102,7 @@ async function bootstrap() {
   const port = Number(process.env.PORT) || Number(config.get('PORT')) || 4000;
 
   await app.listen(port);
-  console.log(`Backend listening on http://localhost:${port}`);
+  console.log(`Backend listening on port ${port}`);
 }
+
 bootstrap();
