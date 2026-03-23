@@ -24,6 +24,7 @@ async function bootstrap() {
   const allowedOrigins = [
     'https://e4dignity.org',                   // production frontend
     'https://www.e4dignity.org',              // production frontend
+    'https://educate4dignity-frontend-3kpe.onrender.com'
     'https://educate4dignity-frontend.onrender.com', // internal frontend for tests
   ];
 
