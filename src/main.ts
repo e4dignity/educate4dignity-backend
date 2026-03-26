@@ -26,6 +26,7 @@ async function bootstrap() {
     'https://www.e4dignity.org',              // production frontend
     'https://educate4dignity-frontend-3kpe.onrender.com',
     'https://educate4dignity-frontend-dyd8g6cgcuhnevea.eastus2-01.azurewebsites.net',
+    'educate4dignity-frontends-fkgke9dpbjdvd5gc.canadacentral-01.azurewebsites.net',
     'https://educate4dignity-frontend.onrender.com', // internal frontend for tests
   ];
 
